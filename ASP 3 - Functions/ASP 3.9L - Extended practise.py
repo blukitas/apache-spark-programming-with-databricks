@@ -51,6 +51,12 @@ display(events_df)
 
 # COMMAND ----------
 
+print(sc.defaultMinPartitions)
+print(sc.defaultParallelism)
+
+
+# COMMAND ----------
+
 # MAGIC %md ### 1: Get emails of converted users from transactions
 # MAGIC - Select the **`email`** column in **`sales_df`** and remove duplicates
 # MAGIC - Add a new column **`converted`** with the boolean **`True`** for all rows
@@ -62,9 +68,61 @@ display(events_df)
 # TODO
 from pyspark.sql.functions import *
 
-converted_users_df = (sales_df.FILL_IN
-                     )
+converted_users_df = sales_df.select(
+    "email",
+    lit(True).alias("converted"),
+    (col("transaction_timestamp") / 1e6).cast("timestamp").alias("transaction_ts"),
+    "purchase_revenue_in_usd",
+    # "unique_items",
+    # round(col("purchase_revenue_in_usd") / col("unique_items"), 2).alias(
+    #     "revenue_per_item"
+    # ),
+# ).drop_duplicates()
+).groupBy(['email', 'converted']).agg(
+    min("transaction_ts").alias("first_transaction_ts"),
+    mean("purchase_revenue_in_usd").alias("avg_purchase_revenue_in_usd")
+)
+
 display(converted_users_df)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC Explain the plan, check the steps
+# MAGIC 
+# MAGIC Without drop, it looks like: 
+# MAGIC 
+# MAGIC ```
+# MAGIC == Physical Plan ==
+# MAGIC *(1) Project [email#42143, true AS converted#42515]
+# MAGIC +- *(1) ColumnarToRow
+# MAGIC    +- FileScan parquet [email#42143] Batched: true, DataFilters: [], Format: Parquet, Location: PreparedDeltaFileIndex(1 paths)[dbfs:/mnt/dbacademy-datasets/apache-spark-programming-with-databr..., PartitionFilters: [], PushedFilters: [], ReadSchema: struct<email:string>
+# MAGIC ```
+# MAGIC 
+# MAGIC With drop:
+# MAGIC ```
+# MAGIC == Physical Plan ==
+# MAGIC AdaptiveSparkPlan isFinalPlan=false
+# MAGIC +- HashAggregate(keys=[email#42143, true#42600], functions=[])
+# MAGIC    +- Exchange hashpartitioning(email#42143, true#42600, 200), ENSURE_REQUIREMENTS, [plan_id=33383]
+# MAGIC       +- HashAggregate(keys=[email#42143, true AS true#42600], functions=[])
+# MAGIC          +- FileScan parquet [email#42143] Batched: true, DataFilters: [], Format: Parquet, Location: PreparedDeltaFileIndex(1 paths)[dbfs:/mnt/dbacademy-datasets/apache-spark-programming-with-databr..., PartitionFilters: [], PushedFilters: [], ReadSchema: struct<email:string>
+# MAGIC ```
+# MAGIC 
+# MAGIC Changing the drop to an aggregation: 
+# MAGIC ```
+# MAGIC == Physical Plan ==
+# MAGIC AdaptiveSparkPlan isFinalPlan=false
+# MAGIC +- HashAggregate(keys=[email#42143, true#43513], functions=[finalmerge_min(merge min#43456) AS min(transaction_ts#43433)#43442, finalmerge_avg(merge sum#43459, count#43460L) AS avg(purchase_revenue_in_usd#42146)#43444])
+# MAGIC    +- Exchange hashpartitioning(email#42143, true#43513, 200), ENSURE_REQUIREMENTS, [plan_id=36735]
+# MAGIC       +- HashAggregate(keys=[email#42143, true AS true#43513], functions=[partial_min(transaction_ts#43433) AS min#43456, partial_avg(purchase_revenue_in_usd#42146) AS (sum#43459, count#43460L)])
+# MAGIC          +- Project [email#42143, cast((cast(transaction_timestamp#42144L as double) / 1000000.0) as timestamp) AS transaction_ts#43433, purchase_revenue_in_usd#42146]
+# MAGIC             +- FileScan parquet [email#42143,transaction_timestamp#42144L,purchase_revenue_in_usd#42146] Batched: true, DataFilters: [], Format: Parquet, Location: PreparedDeltaFileIndex(1 paths)[dbfs:/mnt/dbacademy-datasets/apache-spark-programming-with-databr..., PartitionFilters: [], PushedFilters: [], ReadSchema: struct<email:string,transaction_timestamp:bigint,purchase_revenue_in_usd:double>
+# MAGIC ```
+
+# COMMAND ----------
+
+converted_users_df.explain()
 
 # COMMAND ----------
 
@@ -74,7 +132,7 @@ display(converted_users_df)
 
 # COMMAND ----------
 
-expected_columns = ["email", "converted"]
+expected_columns = ["email", "converted", "first_transaction_ts", "avg_purchase_revenue_in_usd"]
 
 expected_count = 210370
 
@@ -97,10 +155,40 @@ print("All test pass")
 
 # COMMAND ----------
 
+from pyspark.sql.types import ArrayType, DoubleType, IntegerType, LongType, StringType, StructType, StructField
+
 # TODO
-conversions_df = (users_df.FILL_IN
-                 )
+conversions_df = (users_df.join(converted_users_df, on="email", how="left")
+                          .na.drop(subset=['email'])
+                          .fillna(value=False, subset=["converted"])
+                          .withColumn("user_first_touch_ts", (col("user_first_touch_timestamp") / 1e6).cast("timestamp"))
+                          .drop("user_first_touch_timestamp")
+                          # In seconds
+                        #   .withColumn("first_transaction_delay", col("first_transaction_ts") - col("user_first_touch_ts"))
+                          # In minutes
+                          .withColumn("first_transaction_delay", round(
+                                                                    (col("first_transaction_ts").cast(LongType()) - 
+                                                                     col("user_first_touch_ts").cast(LongType())
+                                                                    )/60, 2)
+                                    )
+                        # When there is a null value, the cast/round/... return NULL, like any other SQL
+                )
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC 
+# MAGIC Is there a connection between delay in the first buy and the average amount of buying? It seams that there is not.
+# MAGIC 
+# MAGIC Hint: Quick visualization is very useful in this case
+
+# COMMAND ----------
+
 display(conversions_df)
+
+# COMMAND ----------
+
+conversions_df.explain()
 
 # COMMAND ----------
 
@@ -110,7 +198,14 @@ display(conversions_df)
 
 # COMMAND ----------
 
-expected_columns = ["email", "user_id", "user_first_touch_timestamp", "converted"]
+expected_columns = ["email", 
+                    "user_id", 
+                    "converted", 
+                    "first_transaction_ts", 
+                    "avg_purchase_revenue_in_usd", 
+                    "user_first_touch_ts", 
+                    "first_transaction_delay", 
+                    ]
 
 expected_count = 782749
 
