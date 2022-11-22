@@ -7,6 +7,14 @@
 
 # COMMAND ----------
 
+# MAGIC %md-sandbox
+# MAGIC 
+# MAGIC <div style="text-align: center; line-height: 0; padding-top: 9px;">
+# MAGIC   <img src="https://databricks.com/wp-content/uploads/2018/03/db-academy-rgb-1200px.png" alt="Databricks Learning" style="width: 600px">
+# MAGIC </div>
+
+# COMMAND ----------
+
 # MAGIC %md
 # MAGIC # Sort Day Lab
 # MAGIC 
@@ -59,7 +67,7 @@ def label_day_of_week(day: str) -> str:
 # COMMAND ----------
 
 # TODO
-label_dow_udf = FILL_IN
+label_dow_udf = udf(label_day_of_week)
 
 # COMMAND ----------
 
@@ -70,8 +78,13 @@ label_dow_udf = FILL_IN
 
 # COMMAND ----------
 
+from pyspark.sql.functions import *
+
 # TODO
-final_df = FILL_IN
+final_df = (df
+            .withColumn("day", label_dow_udf(col("day")))
+            .orderBy(col("day").asc())
+        )
 
 display(final_df)
 

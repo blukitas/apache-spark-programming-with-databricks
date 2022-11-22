@@ -62,9 +62,7 @@ display(events_df)
 # TODO
 from pyspark.sql.functions import *
 
-converted_users_df = (sales_df.select("email")
-                          .drop_duplicates()
-                          .select("email", lit(True).alias("converted"))
+converted_users_df = (sales_df.FILL_IN
                      )
 display(converted_users_df)
 
@@ -99,13 +97,8 @@ print("All test pass")
 
 # COMMAND ----------
 
-
 # TODO
-conversions_df = (users_df
-                      .join(other=converted_users_df, on='email', how = "left")
-                      .select("email", "user_id", "user_first_touch_timestamp", "converted")
-                      .na.fill(False, subset=["converted"])
-                      .na.drop(subset=["email"])
+conversions_df = (users_df.FILL_IN
                  )
 display(conversions_df)
 
@@ -145,15 +138,8 @@ print("All test pass")
 # COMMAND ----------
 
 # TODO
-carts_df = (events_df
-                .withColumn("items", explode("items"))
-                .select("user_id", "items.item_id")
-                .groupBy("user_id")
-                .agg(
-                      collect_set("item_id").alias("cart")
-                    )
-            )
-            
+carts_df = (events_df.FILL_IN
+)
 display(carts_df)
 
 # COMMAND ----------
@@ -186,7 +172,7 @@ print("All test pass")
 # COMMAND ----------
 
 # TODO
-email_carts_df = conversions_df.join(other=carts_df, on='user_id', how='left')
+email_carts_df = conversions_df.FILL_IN
 display(email_carts_df)
 
 # COMMAND ----------
@@ -222,9 +208,7 @@ print("All test pass")
 # COMMAND ----------
 
 # TODO
-abandoned_carts_df = (email_carts_df
-                          .filter(col("converted") == False)
-                          .filter(col("cart").isNotNull())
+abandoned_carts_df = (email_carts_df.FILL_IN
 )
 display(abandoned_carts_df)
 
@@ -254,12 +238,8 @@ print("All test pass")
 # COMMAND ----------
 
 # TODO
-abandoned_items_df = (
-    abandoned_carts_df.withColumn("items", explode("cart"))
-    .groupBy("items")
-    .agg(count("items").alias("count"))
-    .orderBy(col("items").asc())
-)
+abandoned_items_df = (abandoned_carts_df.FILL_IN
+                     )
 display(abandoned_items_df)
 
 # COMMAND ----------

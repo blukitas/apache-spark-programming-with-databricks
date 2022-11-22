@@ -53,9 +53,15 @@ display(df)
 
 # COMMAND ----------
 
-# TODO
+# If we don't import sum from sql functions, it won't work
+from pyspark.sql.functions import sum, avg, round
 
-traffic_df = (df.FILL_IN
+# TODO
+traffic_df = (df.groupBy("traffic_source")
+                .agg(
+                    round(sum("revenue"), 1).alias("total_rev"),
+                    avg("revenue").alias("avg_rev")
+                )
 )
 
 display(traffic_df)
@@ -84,7 +90,9 @@ print("All test pass")
 # COMMAND ----------
 
 # TODO
-top_traffic_df = (traffic_df.FILL_IN
+top_traffic_df = (traffic_df
+                      .orderBy(col("total_rev").desc())
+                      .limit(3)
 )
 display(top_traffic_df)
 
@@ -110,9 +118,33 @@ print("All test pass")
 
 # COMMAND ----------
 
-# TODO
-final_df = (top_traffic_df.FILL_IN
+# TODO - required to re run because previously they asked to take out decimals
+
+traffic_df = (df.groupBy("traffic_source")
+                .agg(
+                    sum("revenue").alias("total_rev"),
+                    avg("revenue").alias("avg_rev")
+                )
 )
+top_traffic_df = (traffic_df
+                      .orderBy(col("total_rev").desc())
+                      .limit(3)
+)
+
+final_df = (top_traffic_df
+                    .withColumn("total_rev", ((col("total_rev") * 100).astype("Long") / 100))
+                    .withColumn("avg_rev", ((col("avg_rev") * 100).astype("Long") / 100))
+                    .select("traffic_source",
+                            "total_rev",
+                            "avg_rev"
+                     )
+)
+# final_df = (top_traffic_df
+#                     .select("traffic_source",
+#                             "total_rev",
+#                             round("avg_rev", 2).alias("avg_rev")
+#                      )
+# )
 
 display(final_df)
 
@@ -137,7 +169,11 @@ print("All test pass")
 # COMMAND ----------
 
 # TODO
-bonus_df = (top_traffic_df.FILL_IN
+bonus_df = (top_traffic_df
+                    .select("traffic_source",
+                            round("total_rev", 2).alias("total_rev"),
+                            round("avg_rev", 2).alias("avg_rev")
+                     )
 )
 
 display(bonus_df)
@@ -161,8 +197,18 @@ print("All test pass")
 # COMMAND ----------
 
 # TODO
-chain_df = (df.FILL_IN
-)
+chain_df = (df.groupBy("traffic_source")
+                .agg(
+                    sum("revenue").alias("total_rev"),
+                    avg("revenue").alias("avg_rev")
+                )
+                .orderBy(col("total_rev").desc())
+                .limit(3)
+                .select("traffic_source",
+                        round("total_rev", 2).alias("total_rev"),
+                        round("avg_rev", 2).alias("avg_rev")
+                 )
+             )
 
 display(chain_df)
 

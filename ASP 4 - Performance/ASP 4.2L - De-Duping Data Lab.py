@@ -72,6 +72,103 @@ dbutils.fs.rm(delta_dest_dir, True)
 
 # COMMAND ----------
 
+
+from pyspark.sql.types import ArrayType, DoubleType, IntegerType, LongType, StringType, StructType, StructField, TimestampType
+from pyspark.sql.functions import *
+
+# schema
+user_defined_schema = StructType([
+    StructField("firstName", StringType(), True),
+    StructField("middleName", StringType(), True),
+    StructField("lastName", StringType(), True),
+    StructField("gender", StringType(), True),
+    StructField("birthDate", TimestampType(), True),
+    StructField("salary", LongType(), True),
+    StructField("ssn", StringType(), True)
+])
+
+# read files 
+people_df = (spark
+            .read
+            .option("sep", ":")
+            .option("header", True)
+            .option("lineSep", "\n")
+            # User defined schema
+            .schema(user_defined_schema)
+            .csv(source_file)
+            # Text file can be used, but is too simple
+            # Ref: https://stackoverflow.com/questions/36766322/how-to-create-a-dataframe-from-a-text-file-in-spark
+            #    .text(source_file)
+          )
+
+# create a new column cleaning text on names, and security number
+#   trim, lower, only alphanumeric
+# shall I use udf?
+people_df = (people_df
+                .withColumn("firstName", lower(trim(col("firstName"))))
+                .withColumn("middleName", lower(trim(col("middleName"))))
+                .withColumn("lastName", lower(trim(col("lastName"))))
+                .withColumn("full_name", concat(col("firstName"), col("middleName"), col("lastName")))
+                .withColumn("full_name", regexp_replace(col("full_name"), '[^a-zA-Z0-9]', '') )
+                .withColumn("ssn_clean", lower(trim(col("ssn"))))
+                .withColumn("ssn_clean", regexp_replace(col("ssn_clean"), '[^a-zA-Z0-9]', '') )
+                # drop duplicates by name, security number, 
+                .drop_duplicates(subset=["ssn_clean","full_name"])
+                # select original fields
+                .select("firstName", 
+                        "middleName", 
+                        "lastName", 
+                        "gender", 
+                        "birthDate", 
+                        "salary", 
+                        "ssn", 
+                )
+            )
+            
+people_df = people_df.coalesce(1)
+# Display to check when need it
+# display(people_df)
+
+# write as delta
+(people_df
+    .write
+    .format("delta")
+    .mode("overwrite")
+    .save(delta_dest_dir))
+
+
+# COMMAND ----------
+
+# MAGIC %md 
+# MAGIC 
+# MAGIC Check the executed plan
+
+# COMMAND ----------
+
+people_df.explain()
+
+# COMMAND ----------
+
+# MAGIC %md 
+# MAGIC 
+# MAGIC Check the count
+
+# COMMAND ----------
+
+people_df.count()
+
+# COMMAND ----------
+
+# MAGIC %md 
+# MAGIC 
+# MAGIC Check the used partitions
+
+# COMMAND ----------
+
+people_df.rdd.getNumPartitions()
+
+# COMMAND ----------
+
 # MAGIC %md **CHECK YOUR WORK**
 
 # COMMAND ----------
